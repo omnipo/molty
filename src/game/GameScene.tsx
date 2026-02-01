@@ -56,7 +56,6 @@ const FloatingText = ({ text, position, color }: { text: string, position: [numb
 }
 
 const HitParticles = ({ position, color }: { position: [number, number, number], color: string }) => {
-  // Burst of particles
   return (
     <Sparkles 
       position={position} 
@@ -76,7 +75,6 @@ const HitParticles = ({ position, color }: { position: [number, number, number],
 const Tile = ({ position, color }: { position: [number, number, number], color: string }) => {
   const meshRef = useRef<THREE.Mesh>(null)
   
-  // Visual only - logic handled in controller
   useFrame((_, delta) => {
     if (meshRef.current) {
       meshRef.current.position.z += SPEED * delta
@@ -85,11 +83,6 @@ const Tile = ({ position, color }: { position: [number, number, number], color: 
 
   return (
     <group position={position}>
-      {/* We need to reset the position in a ref because React render won't update it every frame once mounted
-          unless we pass new props. But here props are static initialPos.
-          Actually, the initial position is set on mount. Then useFrame moves it.
-          This is correct for "Fire and Forget" tiles.
-      */}
       <Box ref={meshRef} args={[2.5, 0.3, 2.5]}>
         <meshStandardMaterial 
           color={color} 
@@ -117,12 +110,8 @@ const Player = ({ isPlaying, positionRef }: { isPlaying: boolean, positionRef: R
     if (!groupRef.current) return
     const targetX = (pointer.x * viewport.width) / 2
     const clampedX = THREE.MathUtils.clamp(targetX, -LANE_WIDTH/2, LANE_WIDTH/2)
-    
-    // Update visual pos
     groupRef.current.position.x = THREE.MathUtils.lerp(groupRef.current.position.x, clampedX, 0.2)
     groupRef.current.rotation.z = (groupRef.current.position.x - clampedX) * -0.5
-
-    // Sync ref for logic
     positionRef.current.copy(groupRef.current.position)
   })
 
@@ -134,13 +123,11 @@ const Player = ({ isPlaying, positionRef }: { isPlaying: boolean, positionRef: R
 }
 
 const GameController = ({ startTrigger, onStartComplete, setScore }: { startTrigger: boolean, onStartComplete: () => void, setScore: (n: number) => void }) => {
-  // LOGIC STATE (Refs) - High frequency updates
   const tilesRef = useRef<{id: number, lane: number, z: number, color: string, hit: boolean}[]>([])
-  
-  // RENDER STATE (React) - Low frequency updates (Mount/Unmount only)
-  // We only store ID and Color for rendering. Position is handled by the Tile component or initial prop.
   const [renderTiles, setRenderTiles] = useState<{id: number, initialZ: number, lane: number, color: string}[]>([])
-  const [fxs, setFxs] = useState<{id: number, type: 'text'|'particle', text?: string, pos: [number,number,number], color: string}[]>([])
+  
+  // FX State + Refs for lifecycle management
+  const [fxs, setFxs] = useState<{id: number, type: 'text'|'particle', text?: string, pos: [number,number,number], color: string, startTime: number}[]>([])
   
   const playerPos = useRef(new THREE.Vector3())
   const [isPlaying, setIsPlaying] = useState(false)
@@ -148,7 +135,6 @@ const GameController = ({ startTrigger, onStartComplete, setScore }: { startTrig
   const fxIdCounter = useRef(0)
   const scoreRef = useRef(0)
 
-  // Audio Engine triggers spawns
   const { initAudio, play, update } = useRhythmEngine('/music/track.mp3', (beatIndex) => {
     const id = tileIdCounter.current++
     const lanes = [-2.5, 0, 2.5]
@@ -156,10 +142,7 @@ const GameController = ({ startTrigger, onStartComplete, setScore }: { startTrig
     const lane = lanes[laneIdx]
     const color = ['#ff0080', '#00ffff', '#bd00ff', '#ffeb3b'][beatIndex % 4]
     
-    // Add to Logic
     tilesRef.current.push({ id, lane, z: SPAWN_Z, color, hit: false })
-    
-    // Add to Render (Trigger Mount)
     setRenderTiles(prev => [...prev, { id, initialZ: SPAWN_Z, lane, color }])
   })
 
@@ -171,73 +154,58 @@ const GameController = ({ startTrigger, onStartComplete, setScore }: { startTrig
     }
   }, [startTrigger])
 
-  // Game Logic Loop (60 FPS)
   useFrame((state, delta) => {
-    update() // Pump audio engine
+    update() 
 
-    // 1. Update Physics & Logic
-    // We iterate backwards to allow safe removal if needed, though we sync with state later
     const activeTiles = tilesRef.current
     const tilesToRemove: number[] = []
+    let newFxsToAdd: any[] = []
 
+    // 1. Tile Logic
     for (const t of activeTiles) {
-      // Move logic Z
       t.z += SPEED * delta
-
-      // Hit Check
       if (!t.hit && Math.abs(t.z - 0) < HIT_WINDOW_Z) {
-        // Player X vs Tile Lane
         if (Math.abs(t.lane - playerPos.current.x) < HIT_WINDOW_X) {
            t.hit = true
            tilesToRemove.push(t.id)
-
-           // Spawn FX
            const fxId = fxIdCounter.current++
-           const fxPos: [number,number,number] = [t.lane, 0, 0] // Snap to hit point
+           const fxPos: [number,number,number] = [t.lane, 0, 0] 
            
-           // We use a functional update to queue FX
-           setFxs(prev => {
-             // Clean up old FX to prevent memory leak if timer fails (safety cap)
-             const clean = prev.length > 10 ? prev.slice(prev.length - 10) : prev
-             return [...clean, 
-               { id: fxId, type: 'text', text: 'PERFECT', pos: [fxPos[0], 2, 0], color: '#fff' },
-               { id: fxId+1, type: 'particle', pos: fxPos, color: t.color }
-             ]
-           })
-           
-           // Schedule removal of these specific FX
-           setTimeout(() => {
-             setFxs(current => current.filter(x => x.id !== fxId && x.id !== fxId+1))
-           }, 800) // 0.8s lifetime
+           newFxsToAdd.push(
+               { id: fxId, type: 'text', text: 'PERFECT', pos: [fxPos[0], 2, 0], color: '#fff', startTime: Date.now() },
+               { id: fxId+1, type: 'particle', pos: fxPos, color: t.color, startTime: Date.now() }
+           )
 
            scoreRef.current += 100
            setScore(scoreRef.current)
         }
       }
-
-      // Miss Check
-      if (t.z > 2) {
-        tilesToRemove.push(t.id)
-      }
+      if (t.z > 2) tilesToRemove.push(t.id)
     }
 
-    // 2. Sync Logic -> Render
     if (tilesToRemove.length > 0) {
-      // Remove from logic
       tilesRef.current = tilesRef.current.filter(t => !tilesToRemove.includes(t.id))
-      // Remove from render
       setRenderTiles(prev => prev.filter(t => !tilesToRemove.includes(t.id)))
+    }
+
+    // 2. FX Cleanup Logic (Frame-based)
+    // Add new FX and clean old ones in one state update
+    if (newFxsToAdd.length > 0 || fxs.length > 0) { // optimization: only run if needed
+        setFxs(prev => {
+            const now = Date.now()
+            const keep = prev.filter(fx => now - fx.startTime < 800) // 0.8s lifetime
+            if (keep.length === prev.length && newFxsToAdd.length === 0) return prev
+            return [...keep, ...newFxsToAdd]
+        })
     }
   })
 
   return (
     <>
       <Player isPlaying={isPlaying} positionRef={playerPos} />
-      
       {renderTiles.map(tile => (
         <Tile key={tile.id} position={[tile.lane, 0, tile.initialZ]} color={tile.color} />
       ))}
-
       {fxs.map(fx => (
         fx.type === 'text' ? 
           <FloatingText key={fx.id} text={fx.text!} position={fx.pos} color={fx.color} /> :
@@ -257,7 +225,7 @@ export default function GameScene({ startTrigger, setScore }: { startTrigger: bo
 
       <GameController startTrigger={startTrigger} onStartComplete={() => {}} setScore={setScore} />
 
-      <gridHelper args={[100, 50, '#ff0080', '#220033']} position={[0, 0, -20]} />
+      {/* Grid Removed, replaced with simple floor */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.1, 0]}>
         <planeGeometry args={[100, 100]} />
         <meshStandardMaterial color="#050510" roughness={0.1} metalness={0.9} />
