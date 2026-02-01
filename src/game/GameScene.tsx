@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect, useMemo } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
-import { Box, Sparkles, Text, Instance, Instances } from '@react-three/drei'
+import { Box, Sparkles, Text, Instance, Instances, useTexture } from '@react-three/drei'
 import * as THREE from 'three'
 import gsap from 'gsap'
 import { useRhythmEngine } from './useAudio'
@@ -20,6 +20,30 @@ const HIT_WINDOW_X = 1.2
 
 // --- FX COMPONENTS ---
 // (Same as before)
+const Background = () => {
+  const texture = useTexture('/bg.jpg')
+  const { scene } = useThree()
+  
+  useEffect(() => {
+    // Configure texture mapping to look okay
+    texture.encoding = THREE.SRGBColorSpace
+    texture.minFilter = THREE.LinearFilter
+    
+    // Attach to background
+    scene.background = texture
+    
+    // Optional: Add some fog to blend the floor into the image
+    scene.fog = new THREE.FogExp2('#000000', 0.02)
+    
+    return () => {
+      scene.background = null
+      scene.fog = null
+    }
+  }, [texture, scene])
+  
+  return null
+}
+
 const FloatingText = ({ text, position, color }: { text: string, position: [number, number, number], color: string }) => {
   const ref = useRef<THREE.Group>(null)
   useEffect(() => {
@@ -225,16 +249,22 @@ const GameController = ({ startTrigger, onStartComplete, setScore, onGameOver }:
 export default function GameScene({ startTrigger, setScore, onGameOver }: { startTrigger: boolean, setScore: (n: number) => void, onGameOver: () => void }) {
   return (
     <>
-      <color attach="background" args={['#050510']} />
-      <fog attach="fog" args={['#050510', 5, 50]} />
+      <Background />
       <ambientLight intensity={0.5} />
       <directionalLight position={[0, 10, 5]} intensity={1} />
 
       <GameController startTrigger={startTrigger} onStartComplete={() => {}} setScore={setScore} onGameOver={onGameOver} />
 
+      {/* Transparent floor so background shows through below? Or reflective? */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.1, 0]}>
         <planeGeometry args={[100, 100]} />
-        <meshStandardMaterial color="#050510" roughness={0.1} metalness={0.9} />
+        <meshStandardMaterial 
+            color="#111" 
+            roughness={0.1} 
+            metalness={0.8} 
+            transparent 
+            opacity={0.8} 
+        />
       </mesh>
       
       <Sparkles count={50} scale={12} size={4} speed={0.4} opacity={0.5} color="#00ffff" position={[0, 5, -10]} />
