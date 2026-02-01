@@ -5,6 +5,7 @@ import GameScene from './game/GameScene'
 function App() {
   const [isPlaying, setIsPlaying] = useState(false)
   const [startTrigger, setStartTrigger] = useState(false)
+  const [score, setScore] = useState(0)
 
   const handleStart = () => {
     setIsPlaying(true)
@@ -39,13 +40,20 @@ function App() {
       {/* HUD */}
       {isPlaying && (
         <div style={{ position: 'absolute', top: 20, left: 20, zIndex: 10, color: 'white' }}>
-          <h2 style={{ margin: 0 }}>SCORE: 0</h2>
+          <h2 style={{ 
+            margin: 0, 
+            fontSize: '2rem', 
+            fontFamily: 'monospace',
+            textShadow: '2px 2px 0px #ff0080' 
+          }}>
+            SCORE: {score}
+          </h2>
         </div>
       )}
 
       <Canvas shadows camera={{ position: [0, 4, 8], fov: 60 }} dpr={[1, 2]}>
         <Suspense fallback={null}>
-          <GameScene startTrigger={startTrigger} />
+          <GameScene startTrigger={startTrigger} setScore={setScore} />
         </Suspense>
       </Canvas>
     </div>
