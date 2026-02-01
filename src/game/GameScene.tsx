@@ -40,7 +40,18 @@ const FloatingText = ({ text, position, color }: { text: string, position: [numb
 }
 
 const HitParticles = ({ position, color }: { position: [number, number, number], color: string }) => {
-  return <Sparkles position={position} count={20} scale={4} size={6} speed={2} opacity={1} color={color} noise={1} />
+  const ref = useRef<THREE.Group>(null)
+  useEffect(() => {
+    if (ref.current) {
+      gsap.to(ref.current.position, { y: position[1] + 3, z: position[2] + 2, duration: 0.8, ease: "power1.out" })
+      gsap.to(ref.current.scale, { x: 0, y: 0, z: 0, duration: 0.3, delay: 0.5 })
+    }
+  }, [])
+  return (
+    <group ref={ref} position={position}>
+      <Sparkles count={20} scale={3} size={6} speed={0.4} opacity={1} color={color} noise={0.5} />
+    </group>
+  )
 }
 
 const Tile = ({ position, color }: { position: [number, number, number], color: string }) => {
@@ -150,18 +161,32 @@ const GameController = ({ startTrigger, onStartComplete, setScore, onGameOver }:
 
       // Hit Check
       if (!t.hit && Math.abs(t.z - 0) < HIT_WINDOW_Z) {
-        if (Math.abs(t.lane - playerPos.current.x) < HIT_WINDOW_X) {
+        const diffX = Math.abs(t.lane - playerPos.current.x)
+        
+        if (diffX < HIT_WINDOW_X) {
            t.hit = true
            tilesToRemove.push(t.id)
            const fxId = fxIdCounter.current++
            const fxPos: [number,number,number] = [t.lane, 0, 0] 
            
+           // JUDGMENT LOGIC
+           let hitText = 'GREAT'
+           let points = 50
+           let textColor = '#aaaaff' // Blueish for Great
+           
+           // Strict window for Perfect (Center +/- 0.5)
+           if (diffX < 0.5) {
+             hitText = 'PERFECT'
+             points = 100
+             textColor = '#fff' // White for Perfect
+           }
+
            newFxsToAdd.push(
-               { id: fxId, type: 'text', text: 'PERFECT', pos: [fxPos[0], 2, 0], color: '#fff', startTime: Date.now() },
+               { id: fxId, type: 'text', text: hitText, pos: [fxPos[0], 2, 0], color: textColor, startTime: Date.now() },
                { id: fxId+1, type: 'particle', pos: fxPos, color: t.color, startTime: Date.now() }
            )
 
-           scoreRef.current += 100
+           scoreRef.current += points
            setScore(scoreRef.current)
         }
       }
