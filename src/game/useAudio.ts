@@ -63,6 +63,14 @@ export const useRhythmEngine = (url: string, onBeat: (beatIndex: number) => void
     }
   }
 
+  const stop = () => {
+    if (sound.current && sound.current.isPlaying) {
+      sound.current.stop()
+    }
+    isPlaying.current = false
+    nextBeatIndex.current = 0
+  }
+
   const update = () => {
     if (!isPlaying.current || !sound.current || !sound.current.context) return
 
@@ -90,5 +98,5 @@ export const useRhythmEngine = (url: string, onBeat: (beatIndex: number) => void
     }
   }
 
-  return { initAudio, play, update, BPM, BEAT_DURATION }
+  return { initAudio, play, stop, update, BPM, BEAT_DURATION }
 }

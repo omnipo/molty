@@ -15,80 +15,43 @@ const TRAVEL_TIME = TRAVEL_BEATS * BEAT_TIME
 const SPAWN_Z = -40
 const SPEED = Math.abs(SPAWN_Z) / TRAVEL_TIME
 const LANE_WIDTH = 6 
-const HIT_WINDOW_Z = 1.0 // Z-distance tolerance for hit
-const HIT_WINDOW_X = 1.2 // X-distance tolerance (lane width approx 2.5)
+const HIT_WINDOW_Z = 1.0 
+const HIT_WINDOW_X = 1.2 
 
 // --- FX COMPONENTS ---
-
+// (Same as before)
 const FloatingText = ({ text, position, color }: { text: string, position: [number, number, number], color: string }) => {
   const ref = useRef<THREE.Group>(null)
-  
   useEffect(() => {
     if (ref.current) {
-      // Pop up and fade out
       gsap.fromTo(ref.current.position, 
         { y: position[1], z: position[2] },
         { y: position[1] + 3, z: position[2] + 2, duration: 0.8, ease: "power1.out" }
       )
-      gsap.to(ref.current.scale, {
-        x: 1.5, y: 1.5, duration: 0.1, yoyo: true, repeat: 1
-      })
-      gsap.to(ref.current, {
-        visible: false, delay: 0.8
-      })
+      gsap.to(ref.current.scale, { x: 1.5, y: 1.5, duration: 0.1, yoyo: true, repeat: 1 })
+      gsap.to(ref.current, { visible: false, delay: 0.8 })
     }
   }, [])
-
   return (
     <group ref={ref} position={position}>
-      <Text
-        fontSize={1.2}
-        color={color}
-        anchorX="center"
-        anchorY="middle"
-        outlineWidth={0.05}
-        outlineColor="#000"
-      >
-        {text}
-      </Text>
+      <Text fontSize={1.2} color={color} anchorX="center" anchorY="middle" outlineWidth={0.05} outlineColor="#000">{text}</Text>
     </group>
   )
 }
 
 const HitParticles = ({ position, color }: { position: [number, number, number], color: string }) => {
-  return (
-    <Sparkles 
-      position={position} 
-      count={20} 
-      scale={4} 
-      size={6} 
-      speed={2} 
-      opacity={1} 
-      color={color}
-      noise={1}
-    />
-  )
+  return <Sparkles position={position} count={20} scale={4} size={6} speed={2} opacity={1} color={color} noise={1} />
 }
-
-// --- GAME COMPONENTS ---
 
 const Tile = ({ position, color }: { position: [number, number, number], color: string }) => {
   const meshRef = useRef<THREE.Mesh>(null)
-  
   useFrame((_, delta) => {
-    if (meshRef.current) {
-      meshRef.current.position.z += SPEED * delta
-    }
+    if (meshRef.current) meshRef.current.position.z += SPEED * delta
   })
-
   return (
     <group position={position}>
       <Box ref={meshRef} args={[2.5, 0.3, 2.5]}>
-        <meshStandardMaterial 
-          color={color} 
-          emissive={color} 
-          emissiveIntensity={0.8}
-        />
+        <meshStandardMaterial color={color} emissive={color} emissiveIntensity={0.8} />
       </Box>
     </group>
   )
@@ -122,11 +85,9 @@ const Player = ({ isPlaying, positionRef }: { isPlaying: boolean, positionRef: R
   )
 }
 
-const GameController = ({ startTrigger, onStartComplete, setScore }: { startTrigger: boolean, onStartComplete: () => void, setScore: (n: number) => void }) => {
+const GameController = ({ startTrigger, onStartComplete, setScore, onGameOver }: { startTrigger: boolean, onStartComplete: () => void, setScore: (n: number) => void, onGameOver: () => void }) => {
   const tilesRef = useRef<{id: number, lane: number, z: number, color: string, hit: boolean}[]>([])
   const [renderTiles, setRenderTiles] = useState<{id: number, initialZ: number, lane: number, color: string}[]>([])
-  
-  // FX State + Refs for lifecycle management
   const [fxs, setFxs] = useState<{id: number, type: 'text'|'particle', text?: string, pos: [number,number,number], color: string, startTime: number}[]>([])
   
   const playerPos = useRef(new THREE.Vector3())
@@ -135,7 +96,8 @@ const GameController = ({ startTrigger, onStartComplete, setScore }: { startTrig
   const fxIdCounter = useRef(0)
   const scoreRef = useRef(0)
 
-  const { initAudio, play, update } = useRhythmEngine('/music/track.mp3', (beatIndex) => {
+  // Audio Engine triggers spawns
+  const { initAudio, play, stop, update } = useRhythmEngine('/music/track.mp3', (beatIndex) => {
     const id = tileIdCounter.current++
     const lanes = [-2.5, 0, 2.5]
     const laneIdx = Math.floor(Math.random() * lanes.length)
@@ -148,22 +110,45 @@ const GameController = ({ startTrigger, onStartComplete, setScore }: { startTrig
 
   useEffect(() => {
     if (startTrigger) {
+      // Reset State on Start
+      tilesRef.current = []
+      setRenderTiles([])
+      setFxs([])
+      scoreRef.current = 0
+      setScore(0)
+      
       initAudio().then(() => {
         play(); setIsPlaying(true); onStartComplete()
       })
+    } else {
+       // If startTrigger goes false (restart), ensure stop
+       stop()
+       setIsPlaying(false)
     }
   }, [startTrigger])
 
   useFrame((state, delta) => {
+    if (!isPlaying) return
+
     update() 
 
     const activeTiles = tilesRef.current
     const tilesToRemove: number[] = []
     let newFxsToAdd: any[] = []
 
-    // 1. Tile Logic
     for (const t of activeTiles) {
       t.z += SPEED * delta
+      
+      // Miss Detection (Game Over)
+      // If tile passes player (Z > 0.5) and wasn't hit
+      if (!t.hit && t.z > 0.5) {
+         setIsPlaying(false)
+         stop()
+         onGameOver()
+         return // Stop loop immediately
+      }
+
+      // Hit Check
       if (!t.hit && Math.abs(t.z - 0) < HIT_WINDOW_Z) {
         if (Math.abs(t.lane - playerPos.current.x) < HIT_WINDOW_X) {
            t.hit = true
@@ -180,7 +165,6 @@ const GameController = ({ startTrigger, onStartComplete, setScore }: { startTrig
            setScore(scoreRef.current)
         }
       }
-      if (t.z > 2) tilesToRemove.push(t.id)
     }
 
     if (tilesToRemove.length > 0) {
@@ -188,12 +172,10 @@ const GameController = ({ startTrigger, onStartComplete, setScore }: { startTrig
       setRenderTiles(prev => prev.filter(t => !tilesToRemove.includes(t.id)))
     }
 
-    // 2. FX Cleanup Logic (Frame-based)
-    // Add new FX and clean old ones in one state update
-    if (newFxsToAdd.length > 0 || fxs.length > 0) { // optimization: only run if needed
+    if (newFxsToAdd.length > 0 || fxs.length > 0) { 
         setFxs(prev => {
             const now = Date.now()
-            const keep = prev.filter(fx => now - fx.startTime < 800) // 0.8s lifetime
+            const keep = prev.filter(fx => now - fx.startTime < 800)
             if (keep.length === prev.length && newFxsToAdd.length === 0) return prev
             return [...keep, ...newFxsToAdd]
         })
@@ -215,7 +197,7 @@ const GameController = ({ startTrigger, onStartComplete, setScore }: { startTrig
   )
 }
 
-export default function GameScene({ startTrigger, setScore }: { startTrigger: boolean, setScore: (n: number) => void }) {
+export default function GameScene({ startTrigger, setScore, onGameOver }: { startTrigger: boolean, setScore: (n: number) => void, onGameOver: () => void }) {
   return (
     <>
       <color attach="background" args={['#050510']} />
@@ -223,9 +205,8 @@ export default function GameScene({ startTrigger, setScore }: { startTrigger: bo
       <ambientLight intensity={0.5} />
       <directionalLight position={[0, 10, 5]} intensity={1} />
 
-      <GameController startTrigger={startTrigger} onStartComplete={() => {}} setScore={setScore} />
+      <GameController startTrigger={startTrigger} onStartComplete={() => {}} setScore={setScore} onGameOver={onGameOver} />
 
-      {/* Grid Removed, replaced with simple floor */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.1, 0]}>
         <planeGeometry args={[100, 100]} />
         <meshStandardMaterial color="#050510" roughness={0.1} metalness={0.9} />
