@@ -4,6 +4,12 @@ import GameScene from './game/GameScene'
 
 function App() {
   const [isPlaying, setIsPlaying] = useState(false)
+  const [startTrigger, setStartTrigger] = useState(false)
+
+  const handleStart = () => {
+    setIsPlaying(true)
+    setStartTrigger(true)
+  }
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
@@ -17,7 +23,7 @@ function App() {
         }}>
           <h1 style={{ fontSize: '3rem', margin: '0 0 20px 0', textShadow: '0 0 10px #ff0080' }}>NEON HOP</h1>
           <button 
-            onClick={() => setIsPlaying(true)}
+            onClick={handleStart}
             style={{
               padding: '15px 40px', fontSize: '1.5rem', background: 'linear-gradient(45deg, #ff0080, #00ffff)',
               border: 'none', borderRadius: '30px', color: 'white', fontWeight: 'bold', cursor: 'pointer',
@@ -39,7 +45,7 @@ function App() {
 
       <Canvas shadows camera={{ position: [0, 4, 8], fov: 60 }} dpr={[1, 2]}>
         <Suspense fallback={null}>
-          <GameScene isPlaying={isPlaying} onStart={() => {}} />
+          <GameScene startTrigger={startTrigger} />
         </Suspense>
       </Canvas>
     </div>

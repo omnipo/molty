@@ -2,70 +2,93 @@ import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { useThree } from '@react-three/fiber'
 
-export const useAudioAnalyzer = (url: string, onBeat: () => void) => {
+// Standard Future Bass/House BPM usually around 128
+const BPM = 128 
+const BEAT_DURATION = 60 / BPM // seconds per beat
+
+export const useRhythmEngine = (url: string, onBeat: (beatIndex: number) => void) => {
   const { camera } = useThree()
-  const listener = useRef<THREE.AudioListener>()
-  const sound = useRef<THREE.Audio>()
-  const analyzer = useRef<THREE.AudioAnalyser>()
-  const isPlaying = useRef(false)
+  const listener = useRef<THREE.AudioListener | null>(null)
+  const sound = useRef<THREE.Audio | null>(null)
   
-  // Beat detection state
-  const lastBeatTime = useRef(0)
-  const threshold = 0.6 // Energy threshold (0-1) - Dynamic adjustment is better but this is simple
+  // Rhythm State
+  const isPlaying = useRef(false)
+  const startTime = useRef(0)
+  const nextBeatIndex = useRef(0)
+
+  // Look-ahead time (schedule events before they are audible)
+  // We want to spawn tiles so they arrive exactly on beat.
+  // If travel time is 2.0s, we need to spawn them 2.0s AHEAD of the music time.
+  // But since we can't play music in the future, we just spawn them based on elapsed time.
 
   useEffect(() => {
-    // Setup listener
+    return () => {
+      if (sound.current && sound.current.isPlaying) sound.current.stop()
+      if (listener.current) {
+        try { camera.remove(listener.current) } catch(e) {}
+      }
+    }
+  }, [camera])
+
+  const initAudio = async () => {
+    if (listener.current) return;
+
     listener.current = new THREE.AudioListener()
     camera.add(listener.current)
 
-    // Setup sound
+    if (listener.current.context.state === 'suspended') {
+      await listener.current.context.resume()
+    }
+
     sound.current = new THREE.Audio(listener.current)
     
-    // Load audio
-    const loader = new THREE.AudioLoader()
-    loader.load(url, (buffer) => {
-      if (sound.current) {
-        sound.current.setBuffer(buffer)
-        sound.current.setLoop(true)
-        sound.current.setVolume(0.5)
-        
-        // Setup Analyzer after buffer load
-        analyzer.current = new THREE.AudioAnalyser(sound.current, 256)
-      }
+    return new Promise<void>((resolve) => {
+      const loader = new THREE.AudioLoader()
+      loader.load(url, (buffer) => {
+        if (sound.current) {
+          sound.current.setBuffer(buffer)
+          sound.current.setLoop(true)
+          sound.current.setVolume(0.5)
+          resolve()
+        }
+      })
     })
-
-    return () => {
-      if (sound.current && sound.current.isPlaying) sound.current.stop()
-      if (listener.current) camera.remove(listener.current)
-    }
-  }, [url, camera])
+  }
 
   const play = () => {
     if (sound.current && !sound.current.isPlaying) {
       sound.current.play()
       isPlaying.current = true
+      startTime.current = performance.now() // Record valid start time
     }
   }
 
-  const update = (delta: number) => {
-    if (!analyzer.current || !isPlaying.current) return
+  const update = () => {
+    if (!isPlaying.current || !sound.current || !sound.current.context) return
 
-    // Get average frequency of lower range (Bass)
-    const data = analyzer.current.getFrequencyData()
-    let bassTotal = 0
-    // Check first 4 bins (very low freq)
-    for (let i = 0; i < 4; i++) {
-      bassTotal += data[i]
-    }
-    const bassAvg = bassTotal / 4 / 255 // Normalize 0-1
+    // Get precise audio time
+    const time = sound.current.context.currentTime
+    // If context time is global, we might need offset. 
+    // For simple Audio object, let's rely on internal clock estimation if needed, 
+    // but context.currentTime is best for rhythm.
+    
+    // Actually, simplest way for a loop:
+    // Calculate how many beats *should* have passed since start
+    // Note: This assumes we started at 0. Simple demo.
+    
+    // We want to fire events.
+    // We use a "lookahead" based on system time since we started playing.
+    const elapsed = (performance.now() - startTime.current) / 1000
+    
+    // Calculate current beat index
+    const currentBeat = Math.floor(elapsed / BEAT_DURATION)
 
-    // Beat detection logic
-    const now = performance.now()
-    if (bassAvg > 0.5 && now - lastBeatTime.current > 300) { // Min 300ms between beats (~200 BPM limit)
-       onBeat()
-       lastBeatTime.current = now
+    // If we moved to a new beat
+    if (currentBeat >= nextBeatIndex.current) {
+      onBeat(nextBeatIndex.current)
+      nextBeatIndex.current = currentBeat + 1
     }
   }
 
-  return { play, update, isPlaying }
+  return { initAudio, play, update, BPM, BEAT_DURATION }
 }
